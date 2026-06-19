@@ -133,6 +133,26 @@ class CsonicHost(NeighborDevice):
                 pass
         return {}
 
+    def config_facts(self, *args, **kwargs):
+        """Return CONFIG_DB contents shaped like the Ansible config_facts module.
+
+        SonicHost/EosHost dispatch `config_facts` as an Ansible module that
+        returns {"ansible_facts": {<CONFIG_DB>}}. cSONiC neighbors are driven via
+        docker exec, so we reproduce that contract using `sonic-cfggen -d`, which
+        dumps the running CONFIG_DB as JSON. Only source="running" is meaningful
+        for a cSONiC (docker-sonic-vs) neighbor; the argument is accepted for
+        signature compatibility and otherwise ignored.
+        """
+        result = self._docker_exec("sonic-cfggen -d --print-data")
+        cfg = {}
+        if result['rc'] == 0 and result['stdout']:
+            try:
+                cfg = json.loads(result['stdout'])
+            except (json.JSONDecodeError, ValueError):
+                logging.error("%s: failed to parse sonic-cfggen output", self)
+                cfg = {}
+        return {"ansible_facts": cfg}
+
     def get_port_channel_status(self, pc_name=None):
         """Get PortChannel status."""
         if pc_name:

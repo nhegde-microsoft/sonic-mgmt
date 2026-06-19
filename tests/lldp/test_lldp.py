@@ -137,7 +137,86 @@ def _neighbor_has_lldp_entry(localhost, hostip, snmp_community, neighbor_interfa
     return neighbor_interface in nei_lldp_facts.get('ansible_lldp_facts', {})
 
 
-def check_lldp_neighbor(duthost, localhost, eos, sonic, collect_techsupport_all_duts,
+def _parse_lldpctl_keyvalue(stdout):
+    """Parse `lldpctl -f keyvalue` output into {iface: {dotted.path: value}}.
+
+    Lines look like: lldp.Ethernet1.chassis.name=vlab-01
+    Returns a mapping keyed by the neighbor's local interface name, each value
+    being a dict of the remaining dotted path (e.g. 'chassis.name') -> value.
+    """
+    per_iface = {}
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("lldp.") or "=" not in line:
+            continue
+        path, value = line.split("=", 1)
+        parts = path.split(".")
+        if len(parts) < 3:
+            continue
+        iface = parts[1]
+        sub_path = ".".join(parts[2:])
+        per_iface.setdefault(iface, {})[sub_path] = value
+    return per_iface
+
+
+def _csonic_neighbor_lldp_facts(nbrhost, dut_hostname):
+    """Build an ansible_lldp_facts-equivalent dict from a cSONiC neighbor's own lldpctl.
+
+    cSONiC (docker-sonic-vs) neighbors do not run SNMP, so the SNMP-based
+    `localhost.lldp_facts()` path used for cEOS/real-SONiC-over-SSH neighbors is
+    not available. Instead we query the neighbor's local `lldpctl` (via the
+    CsonicHost docker-exec interface) and reshape it to match exactly what the
+    SNMP collector returns: a mapping keyed by the neighbor's local interface
+    ALIAS, with the remote/DUT values:
+        neighbor_sys_name, neighbor_chassis_id, neighbor_sys_desc,
+        neighbor_port_id, neighbor_port_desc
+
+    The SNMP collector keys ansible_lldp_facts by the neighbor's *own* local
+    interface name (from its ifTable, which on SONiC is the port alias). That is
+    the same value the DUT advertises and that the test looks up as
+    neighbor_interface (= the DUT-side v['port']['local']). Note this is the
+    neighbor's OWN port alias, NOT the lldpctl 'port.local' field (which carries
+    the *remote*/DUT port alias). We therefore resolve each neighbor-local
+    interface's alias from the neighbor's CONFIG_DB.
+
+    Only entries whose chassis name matches the DUT are included (the neighbor's
+    DUT-facing link), mirroring what the DUT-vs-neighbor comparison needs.
+    """
+    res = nbrhost.command("lldpctl -f keyvalue", module_ignore_errors=True)
+    stdout = res.get("stdout", "") if isinstance(res, dict) else ""
+    per_iface = _parse_lldpctl_keyvalue(stdout)
+
+    facts = {}
+    for iface, fields in per_iface.items():
+        if fields.get("chassis.name") != dut_hostname:
+            continue
+        # Key by the neighbor's OWN local interface alias (what SNMP ifTable would
+        # report and what the DUT advertises as v['port']['local']). Resolve from
+        # the neighbor's CONFIG_DB; fall back to the interface name if unset.
+        alias_res = nbrhost.command(
+            'sonic-db-cli CONFIG_DB hget "PORT|{}" alias'.format(iface),
+            module_ignore_errors=True)
+        local_alias = (alias_res.get("stdout", "").strip()
+                       if isinstance(alias_res, dict) else "") or iface
+        facts[local_alias] = {
+            'neighbor_sys_name': fields.get("chassis.name"),
+            'neighbor_chassis_id': fields.get("chassis.mac"),
+            'neighbor_sys_desc': fields.get("chassis.descr"),
+            # neighbor_port_id is the DUT's port alias as seen by the neighbor,
+            # i.e. the lldpctl 'port.local' (remote) field.
+            'neighbor_port_id': fields.get("port.local"),
+            'neighbor_port_desc': fields.get("port.descr"),
+        }
+    return {'ansible_lldp_facts': facts}
+
+
+def _csonic_neighbor_has_lldp_entry(nbrhost, dut_hostname, neighbor_interface):
+    """CLI equivalent of _neighbor_has_lldp_entry for cSONiC neighbors."""
+    facts = _csonic_neighbor_lldp_facts(nbrhost, dut_hostname)
+    return neighbor_interface in facts.get('ansible_lldp_facts', {})
+
+
+def check_lldp_neighbor(duthost, localhost, nbrhosts, eos, sonic, collect_techsupport_all_duts,
                         enum_rand_one_frontend_asic_index, tbinfo, request):
     """ verify LLDP information on neighbors """
     asic = enum_rand_one_frontend_asic_index
@@ -173,22 +252,45 @@ def check_lldp_neighbor(duthost, localhost, eos, sonic, collect_techsupport_all_
             logger.info("Neighbor device {} does not sent management IP via lldp".format(v['chassis']['name']))
             hostip = nei_meta[v['chassis']['name']]['mgmt_addr']
 
-        if request.config.getoption("--neighbor_type") == 'eos':
+        neighbor_type = request.config.getoption("--neighbor_type")
+        if neighbor_type == 'eos':
             neighbor_interface = v['port']['ifname']
             snmp_community = eos['snmp_rocommunity']
         else:
             neighbor_interface = v['port']['local']
             snmp_community = sonic['snmp_rocommunity']
 
-        # After swss restart, the DUT's LLDP entry on the neighbor may have aged out
-        # during the restart window. Wait until the neighbor re-learns DUT's LLDP info.
-        assert wait_until(30, 5, 0, _neighbor_has_lldp_entry,
-                          localhost, hostip, snmp_community, neighbor_interface), \
-            "Neighbor {} did not learn LLDP on interface '{}' within 30s".format(
-                hostip, neighbor_interface)
+        if neighbor_type == 'csonic':
+            # cSONiC (docker-sonic-vs) neighbors do not run SNMP, so query the
+            # neighbor's own lldpctl via the CsonicHost docker-exec interface and
+            # reshape it to the same ansible_lldp_facts contract the SNMP path
+            # produces. nbrhosts is keyed by neighbor name (e.g. ARISTA01T1).
+            nbr_name = v['chassis']['name']
+            if nbr_name not in nbrhosts:
+                logger.info("Skipping LLDP neighbor verification for '{}' on '{}': "
+                            "not a managed cSONiC neighbor".format(nbr_name, k))
+                continue
+            nbrhost = nbrhosts[nbr_name]['host']
 
-        nei_lldp_facts = localhost.lldp_facts(
-            host=hostip, version='v2c', community=snmp_community)['ansible_facts']
+            # After swss restart, the DUT's LLDP entry on the neighbor may have
+            # aged out during the restart window. Wait until the neighbor
+            # re-learns DUT's LLDP info.
+            assert wait_until(30, 5, 0, _csonic_neighbor_has_lldp_entry,
+                              nbrhost, duthost.hostname, neighbor_interface), \
+                "Neighbor {} did not learn LLDP on interface '{}' within 30s".format(
+                    nbr_name, neighbor_interface)
+
+            nei_lldp_facts = _csonic_neighbor_lldp_facts(nbrhost, duthost.hostname)
+        else:
+            # After swss restart, the DUT's LLDP entry on the neighbor may have aged out
+            # during the restart window. Wait until the neighbor re-learns DUT's LLDP info.
+            assert wait_until(30, 5, 0, _neighbor_has_lldp_entry,
+                              localhost, hostip, snmp_community, neighbor_interface), \
+                "Neighbor {} did not learn LLDP on interface '{}' within 30s".format(
+                    hostip, neighbor_interface)
+
+            nei_lldp_facts = localhost.lldp_facts(
+                host=hostip, version='v2c', community=snmp_community)['ansible_facts']
 
         # Verify the published DUT system name field is correct
         assert nei_lldp_facts['ansible_lldp_facts'][neighbor_interface]['neighbor_sys_name'] == duthost.hostname, (
@@ -258,7 +360,7 @@ def check_lldp_neighbor(duthost, localhost, eos, sonic, collect_techsupport_all_
             )
 
 
-def test_lldp_neighbor(duthosts, enum_rand_one_per_hwsku_frontend_hostname, localhost, eos, sonic,
+def test_lldp_neighbor(duthosts, enum_rand_one_per_hwsku_frontend_hostname, localhost, nbrhosts, eos, sonic,
                        collect_techsupport_all_duts, loganalyzer, enum_frontend_asic_index, tbinfo, request):
     duthost = duthosts[enum_rand_one_per_hwsku_frontend_hostname]
 
@@ -270,16 +372,16 @@ def test_lldp_neighbor(duthosts, enum_rand_one_per_hwsku_frontend_hostname, loca
             ".*ERR syncd#syncd: :- process_on_fdb_event: FDB notification was \
                 not sent since it contain invalid OIDs, bug.*",
         ])
-    check_lldp_neighbor(duthost, localhost, eos, sonic, collect_techsupport_all_duts,
+    check_lldp_neighbor(duthost, localhost, nbrhosts, eos, sonic, collect_techsupport_all_duts,
                         enum_frontend_asic_index, tbinfo, request)
 
 
 @pytest.mark.disable_loganalyzer
-def test_lldp_neighbor_post_swss_reboot(duthosts, enum_rand_one_per_hwsku_frontend_hostname, localhost, eos,
+def test_lldp_neighbor_post_swss_reboot(duthosts, enum_rand_one_per_hwsku_frontend_hostname, localhost, nbrhosts, eos,
                                         sonic, collect_techsupport_all_duts, enum_frontend_asic_index,
                                         tbinfo, request, restart_swss_container):
     duthost = duthosts[enum_rand_one_per_hwsku_frontend_hostname]
-    check_lldp_neighbor(duthost, localhost, eos, sonic, collect_techsupport_all_duts,
+    check_lldp_neighbor(duthost, localhost, nbrhosts, eos, sonic, collect_techsupport_all_duts,
                         enum_frontend_asic_index, tbinfo, request)
 
 
