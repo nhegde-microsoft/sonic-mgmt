@@ -5,6 +5,7 @@ import logging
 from .common.helpers.assertions import pytest_assert
 from .common.devices.eos import EosHost
 from .common.devices.sonic import SonicHost
+from .common.devices.csonic import CsonicHost
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,16 @@ def test_neighbors_health(duthosts, localhost, nbrhosts, eos, sonic, enum_fronte
             if failmsg:
                 fails.append(failmsg)
 
+            failmsg = check_sonic_bgp_facts(k, nbrhost)
+            if failmsg:
+                fails.append(failmsg)
+
+        elif isinstance(nbrhost, CsonicHost):
+            # cSONiC (docker-sonic-vs) neighbors do not run SNMP and do not
+            # configure a management interface in CONFIG_DB the way EOS/real
+            # SONiC neighbors do, so the SNMP reachability and mgmt-address
+            # facts checks are not applicable. Validate BGP health via the
+            # neighbor's own vtysh (CsonicHost.command runs via docker exec).
             failmsg = check_sonic_bgp_facts(k, nbrhost)
             if failmsg:
                 fails.append(failmsg)
