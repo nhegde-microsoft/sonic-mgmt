@@ -51,6 +51,33 @@
             "platform": "x86_64-kvm_x86_64-r0"
         }
     },
+{# Management interface: give the cSONiC neighbor an IPv4 mgmt address on eth0  #}
+{# (the interface bridged onto the testbed mgmt bridge) so the neighbor is      #}
+{# reachable on the mgmt network the same way cEOS/regular-SONiC neighbors are. #}
+{# Without this the neighbor has only an IPv6 link-local on eth0, so SNMP (and  #}
+{# anything else that targets the neighbor's mgmt IP) cannot reach it. The mgmt #}
+{# IP is the neighbor's inventory ansible_host; gated so the block is omitted if #}
+{# the mgmt vars are not available (keeps non-mgmt deploys byte-identical).      #}
+{% set _mgmt_ip = mgmt_ip | default('') %}
+{% set _mgmt_prefixlen = mgmt_prefixlen | default('') %}
+{% set _mgmt_gw = mgmt_gw | default('') %}
+{% if _mgmt_ip and _mgmt_prefixlen %}
+    "MGMT_INTERFACE": {
+        "eth0|{{ _mgmt_ip }}/{{ _mgmt_prefixlen }}": {
+{% if _mgmt_gw %}
+            "gwaddr": "{{ _mgmt_gw }}"
+{% else %}
+            "NULL": "NULL"
+{% endif %}
+        }
+    },
+    "MGMT_PORT": {
+        "eth0": {
+            "alias": "eth0",
+            "admin_status": "up"
+        }
+    },
+{% endif %}
     "LOOPBACK_INTERFACE": {
 {% set loopback_comma = joiner(",") %}
 {% for name, iface in host['interfaces'].items() %}

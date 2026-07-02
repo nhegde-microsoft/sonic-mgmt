@@ -1,9 +1,19 @@
 ansible_ssh_user: admin
 ansible_connection: multi_passwd_ssh
-ansible_altpassword: "{{ lookup('env', 'SONIC_MGMT_SONIC_ALTPASSWORD') | default('YourPaSsWoRd', true) }}"
-# ansible_altpasswords:
-#   - fakepassword1
-#   - fakepassword2
+# DUT admin password after load_minigraph on this testbed is 'AzUrES0N1cR0cks!'
+# (baked into the locally-built sonic-vs image's admin account). Two harness
+# credential paths must know it:
+#  1) multi_passwd_ssh connection plugin -> ansible_ssh_pass / ansible_password
+#     (PRIMARY so it is tried first; DUT sshd MaxAuthTries=3 limits attempts).
+#  2) creds_on_dut() paramiko path (common/helpers/dut_utils.py) builds its
+#     password list as ansible_altpasswords (or ansible_altpassword if the list
+#     is empty) + sonicadmin_password -> so ansible_altpassword must carry it too.
+ansible_ssh_pass: "AzUrES0N1cR0cks!"
+ansible_password: "AzUrES0N1cR0cks!"
+ansible_altpassword: "AzUrES0N1cR0cks!"
+ansible_altpasswords:
+  - "AzUrES0N1cR0cks!"
+  - password
 
 sonic_version: "v2"
 

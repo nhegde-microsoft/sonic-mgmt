@@ -34,6 +34,27 @@
             "platform": "x86_64-kvm_x86_64-r0"
         }
     },
+{# Management interface (cSONiC mgmt-ip fix, tracking #25706): IPv4 mgmt on eth0 #}
+{% set _mgmt_ip = mgmt_ip | default('') %}
+{% set _mgmt_prefixlen = mgmt_prefixlen | default('') %}
+{% set _mgmt_gw = mgmt_gw | default('') %}
+{% if _mgmt_ip and _mgmt_prefixlen %}
+    "MGMT_INTERFACE": {
+        "eth0|{{ _mgmt_ip }}/{{ _mgmt_prefixlen }}": {
+{% if _mgmt_gw %}
+            "gwaddr": "{{ _mgmt_gw }}"
+{% else %}
+            "NULL": "NULL"
+{% endif %}
+        }
+    },
+    "MGMT_PORT": {
+        "eth0": {
+            "alias": "eth0",
+            "admin_status": "up"
+        }
+    },
+{% endif %}
     "LOOPBACK_INTERFACE": {
 {% set loopback_comma = joiner(",") %}
 {% for name, iface in host['interfaces'].items() %}

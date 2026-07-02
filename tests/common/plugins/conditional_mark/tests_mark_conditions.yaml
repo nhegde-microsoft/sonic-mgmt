@@ -183,12 +183,6 @@ arp/test_arp_extended.py::test_arp_garp_enabled:
     conditions:
       - "https://github.com/sonic-net/sonic-mgmt/issues/19904 and '-v6-' in topo_name"
 
-arp/test_arp_extended.py::test_arp_garp_out_of_subnet_not_learned:
-  skip:
-    reason: "Skip IPv4 GARP out-of-subnet test on IPv6-only topologies"
-    conditions:
-      - "'-v6-' in topo_name"
-
 arp/test_arp_extended.py::test_proxy_arp[v4-:
   skip:
     reason: "skip for IPv6-only topologies"
@@ -659,9 +653,7 @@ bgp/test_bgpmon.py::test_bgpmon:
 
 bgp/test_bgpmon_v6.py::test_bgpmon_no_ipv6_resolve_via_default:
   skip:
-    reason: "Not applicable for passive bgpmon_v6 and UT2 does not use bgpmon_v6"
-    conditions:
-      - "platform in ['x86_64-arista_7280dr3am_36']"
+    reason: "Not applicable for passive bgpmon_v6"
 
 bgp/test_startup_tsa_tsb_service.py::test_tsa_tsb_service_with_supervisor_abnormal_reboot:
   skip:
@@ -989,7 +981,7 @@ decap/:
 
 decap/test_decap.py:
   skip:
-    reason: 'Skip on t1-isolated-d32/128 topos. Skip on Arista-720DT (TD3-X2 SAI does not support DSCP uniform decap).'
+    reason: 'Skip on t1-isolated-d32/128 topos. Skip on Arista-720DT (TD3-X2 chip does not honor DSCP uniform decap; concession in aristanetworks/sonic-qual.msft#1176).'
     conditions_logical_operator: or
     conditions:
       - "topo_name in ['t1-isolated-d128', 't1-isolated-d32']"
@@ -2369,7 +2361,7 @@ fib/test_fib.py:
   skip:
     reason: 'Skip on t1-isolated-d32/128 topos or due to github issue https://github.com/sonic-net/sonic-mgmt/issues/17930'
     conditions:
-      - "topo_name in ['t1-isolated-d128', 't1-isolated-d32', 't1-isolated-d32u1s2']"
+      - "topo_name in ['t1-isolated-d128', 't1-isolated-d32']"
       - "https://github.com/sonic-net/sonic-mgmt/issues/17930 and topo_name in ['t1-isolated-d28u1']"
   xfail:
     reason: "Test case has issue on the t0-isolated-d256u256s2 topo."
@@ -2419,12 +2411,11 @@ fib/test_fib.py::test_ipinip_hash_negative[ipv4:
 
 fib/test_fib.py::test_nvgre_hash:
   skip:
-    reason: 'Nvgre hash test is not fully supported on VS and Broadcom platform; Not supported on M* and cisco-8122, cisco-8223 platforms. Skip on t1-isolated-d32/128 topos'
+    reason: 'Nvgre hash test is not fully supported on VS and Broadcom platform; Not supported on M*. Skip on t1-isolated-d32/128 topos'
     conditions_logical_operator: or
     conditions:
       - "asic_type in ['vs', 'broadcom'] or topo_type in ['m0', 'mx', 'm1']"
       - "topo_name in ['t1-isolated-d128', 't1-isolated-d32']"
-      - "platform in ['x86_64-8122_64eh_o-r0', 'x86_64-8122_64ehf_o-r0', 'x86_64-8223_64e_mo-r0', 'x86_64-8223_64ef_mo-r0']"
   xfail:
     reason: 'Nvgre hash test is not fully supported on SPC1 platform due to known limitation'
     conditions:
@@ -2578,10 +2569,6 @@ generic_config_updater/test_bgp_prefix.py::test_bgp_prefix_tc1_suite:
       - "platform in ['x86_64-8122_64eh_o-r0', 'x86_64-8122_64ehf_o-r0']"
       - "asic_type in ['vs'] and https://github.com/sonic-net/sonic-mgmt/issues/18445"
       - "'isolated' in topo_name"
-  xfail:
-    reason: "BGP allowed-prefix GCU validation fails across platforms, tracked by https://github.com/sonic-net/sonic-mgmt/issues/25549"
-    conditions:
-      - "https://github.com/sonic-net/sonic-mgmt/issues/25549"
 
 generic_config_updater/test_bgp_speaker.py::test_bgp_speaker_tc1_test_config:
   xfail:
@@ -2609,14 +2596,11 @@ generic_config_updater/test_dhcp_relay.py:
 generic_config_updater/test_dynamic_acl.py:
   skip:
     reason: "Device SKUs do not support the custom ACL_TABLE_TYPE that we use in this test / Known log error unrelated to test
-     on m0-2vlan testbed causes consistent failures. / Cisco 81XX devices are being skipped in production for 202511 and the patch from Cisco to fix their ACL key
-     has not been applied on 202511.  202501 it has been and tests will pass, and we expect this to be in future releases
-     as well."
+     on m0-2vlan testbed causes consistent failures."
     conditions_logical_operator: "OR"
     conditions:
       - "platform in ['armhf-nokia_ixs7215_52x-r0']"
       - "topo_name in ['m0-2vlan']"
-      - "release in ['202511'] and platform in ['x86_64-8101_32fh_o-r0', 'x86_64-8102_64h_o-r0']"
 
 generic_config_updater/test_dynamic_acl.py::test_gcu_acl_arp_rule_creation[IPV4:
   skip:
@@ -2961,6 +2945,12 @@ gnmi/test_gnmi_configdb.py::test_gnmi_configdb_subscribe_authenticate:
     conditions:
       - "is_mgmt_ipv6_only==True"
       - "https://github.com/sonic-net/sonic-mgmt/issues/20395"
+
+gnmi/test_gnmi_countersdb.py:
+  xfail:
+    reason: "This test does not supported multi-asic. Skipping test for multi-asic DUTs."
+    conditions:
+      - "is_multi_asic==True"
 
 gnmi/test_gnmi_countersdb.py::test_gnmi_counterdb_polling_01:
   skip:
@@ -3955,13 +3945,6 @@ pc/:
     conditions:
       - "'bmc' in topo_type"
 
-pc/test_lag_2.py::test_lag\[.*-single_lag\]:
-  regex: true
-  skip:
-    reason: "single_lag test cannot run on virtual testbeds because there is no leaf fanout switch to perform the minlink test"
-    conditions:
-      - "asic_type in ['vs', 'vpp']"
-
 pc/test_lag_2.py::test_lag_db_status_with_po_update:
   skip:
     reason: "Only support t1-lag, t1-56-lag, t1-28-lag, t1-64-lag and t2 topology"
@@ -4429,12 +4412,6 @@ qos/test_qos_probe.py:
       - "hwsku in ['Mellanox-SN2700'] and https://github.com/sonic-net/sonic-mgmt/issues/22607"
       # Mellanox SPC3 (Spectrum 3)
       - "hwsku in ['Mellanox-SN4600C-C64'] and https://github.com/sonic-net/sonic-mgmt/issues/22608"
-
-qos/test_qos_probe.py::TestQosProbe::testQosHeadroomPoolProbe:
-  xfail:
-    reason: "HeadroomPool probe fails on Mellanox SPC1 and SPC3 starting at iteration #2: all packets sent to pg=4 (immediately after a successful pg=3 probe on the same src port) are ingress-dropped, so the probe algorithm cannot find a PFC threshold for pg=4. Tracked by #24558 (SPC1+SPC3) and #24215 (SPC1)."
-    conditions:
-      - "asic_gen in ['spc1', 'spc3'] and https://github.com/sonic-net/sonic-mgmt/issues/24558"
 
 qos/test_qos_sai.py:
   skip:
@@ -4946,9 +4923,9 @@ route/test_static_route.py::test_static_route_ecmp_ipv6:
 
 route/test_static_route.py::test_static_route_ecmp_warmboot:
   skip:
-    reason: "Warm reboot is not supported on dualtor topology"
+    reason: "Dualtor topology doesn't support warm reboot on mellanox platform"
     conditions:
-      - "topo_name in ['dualtor', 'dualtor-56', 'dualtor-120', 'dualtor-aa', 'dualtor-aa-56', 'dualtor-aa-64-breakout']"
+      - "topo_name in ['dualtor', 'dualtor-56', 'dualtor-120', 'dualtor-aa', 'dualtor-aa-56', 'dualtor-aa-64-breakout'] and asic_type in ['mellanox', 'nvidia']"
 
 route/test_static_route.py::test_static_route_ipv6:
   xfail:
@@ -4958,15 +4935,9 @@ route/test_static_route.py::test_static_route_ipv6:
 
 route/test_static_route.py::test_static_route_ipv6_warmboot:
   skip:
-    reason: "Warm reboot is not supported on dualtor topology"
+    reason: "Dualtor topology doesn't support warm reboot on mellanox platform"
     conditions:
-      - "topo_name in ['dualtor', 'dualtor-56', 'dualtor-120', 'dualtor-aa', 'dualtor-aa-56', 'dualtor-aa-64-breakout']"
-
-route/test_static_route.py::test_static_route_warmboot:
-  skip:
-    reason: "Warm reboot is not supported on dualtor topology"
-    conditions:
-      - "topo_name in ['dualtor', 'dualtor-56', 'dualtor-120', 'dualtor-aa', 'dualtor-aa-56', 'dualtor-aa-64-breakout']"
+      - "topo_name in ['dualtor', 'dualtor-56', 'dualtor-120', 'dualtor-aa', 'dualtor-aa-56', 'dualtor-aa-64-breakout'] and asic_type in ['mellanox', 'nvidia']"
 
 #######################################
 #####           sai_qualify       #####
@@ -5332,19 +5303,15 @@ span/test_port_mirroring.py:
 #######################################
 srv6/test_srv6_basic_sanity.py:
   skip:
-    reason: "It's a new test case, skip it for other topologies except cisco vs nodes and force nodes. Skip for t1-isolated-d32/128"
-    conditions_logical_operator: or
+    reason: "It's a new test case, skip it for other topologies except cisco vs nodes and force nodes."
     conditions:
       - topo_name not in ["ciscovs-7nodes", "ciscovs-5nodes", "force10-7nodes"]
-      - "topo_name in ['t1-isolated-d128', 't1-isolated-d32']"
 
 srv6/test_srv6_basic_sanity.py::test_traffic_check_normal:
   skip:
-    reason: "It's a new test case, skip it for other topologies except cisco vs nodes (SRv6 data plane required). Skip for t1-isolated-d32/128"
-    conditions_logical_operator: or
+    reason: "It's a new test case, skip it for other topologies except cisco vs nodes (SRv6 data plane required)."
     conditions:
       - topo_name not in ["ciscovs-7nodes", "ciscovs-5nodes"]
-      - "topo_name in ['t1-isolated-d128', 't1-isolated-d32']"
 
 srv6/test_srv6_dataplane.py:
   skip:
@@ -5691,7 +5658,6 @@ telemetry/test_telemetry_srv6.py:
     conditions_logical_operator: or
     conditions:
       - "asic_type == 'broadcom' and asic_gen not in ['th5', 'th6', 'q3d']"
-      - "asic_type == 'mellanox' and asic_gen in ['spc1', 'spc2', 'spc3']"
       - "'bmc' in topo_type"
 
 telemetry/test_telemetry_srv6.py::test_poll_mode_srv6_sid_counters:
@@ -5746,18 +5712,6 @@ test_vs_chassis_setup.py:
     conditions:
       - "asic_type not in ['vs']"
       - *lossyTopos
-
-tests/ha/test_ha_bfd_pin.py:
-  xfail:
-    reason: "BFD pin test is expected to fail on Cisco 8102 SmartSwitch with SONiC 202511"
-    conditions:
-      - "is_smartswitch == True and platform in ['x86_64-8102_28fh_dpu_o-r0'] and branch in ['202511', 'internal-202511']"
-
-tests/ha/test_ha_repairing_dpu.py:
-  xfail:
-    reason: "HA repairing DPU test is expected to fail on Cisco 8102 SmartSwitch with SONiC 202511"
-    conditions:
-      - "is_smartswitch == True and platform in ['x86_64-8102_28fh_dpu_o-r0'] and branch in ['202511', 'internal-202511']"
 
 #######################################
 #####         upgrade_path        #####
@@ -6135,19 +6089,9 @@ vxlan/test_vxlan_decap.py:
 
 vxlan/test_vxlan_decap_ttl.py:
   skip:
-    reason: "VxLAN tunnel TTL decap mode test is not supported on multi-ASIC platforms and dualtor topologies. Also this test can only run and currently passes only on some platforms."
-    conditions_logical_operator: OR
+    reason: "VxLAN tunnel TTL decap mode test is not supported on multi-ASIC platform. Also this test can only run and currently passes only on some platforms."
     conditions:
-      - "is_multi_asic == True"
-      - "platform not in ['x86_64-8102_64h_o-r0', 'x86_64-8101_32fh_o-r0', 'x86_64-mlnx_msn4600c-r0', 'x86_64-mlnx_msn2700-r0', 'x86_64-mlnx_msn2700a1-r0', 'x86_64-mlnx_msn4700-r0', 'x86_64-nvidia_sn4280-r0', 'x86_64-8102_28fh_dpu_o-r0']"
-      - "'dualtor' in topo_name"
-
-vxlan/test_vxlan_decap_ttl.py::test_vxlan_decap_ttl\[v6-.*\]:
-  regex: true
-  skip:
-    reason: "IPv6 VXLAN tunnels are not supported on Mellanox Spectrum-1."
-    conditions:
-      - "asic_type in ['mellanox'] and asic_gen == 'spc1'"
+      - "(is_multi_asic == True) or (platform not in ['x86_64-8102_64h_o-r0', 'x86_64-8101_32fh_o-r0', 'x86_64-mlnx_msn4600c-r0', 'x86_64-mlnx_msn2700-r0', 'x86_64-mlnx_msn2700a1-r0', 'x86_64-mlnx_msn4700-r0', 'x86_64-nvidia_sn4280-r0', 'x86_64-8102_28fh_dpu_o-r0'])"
 
 vxlan/test_vxlan_ecmp.py:
   skip:
@@ -6273,15 +6217,6 @@ wol:
     conditions:
       - "topo_type not in ['mx', 'm0']"
       - *lossyTopos
-
-#######################################
-#####            wred             #####
-#######################################
-wred/test_wred_counters.py:
-  skip:
-    reason: "WRED/ECN is not supported on KVM switches."
-    conditions:
-      - "asic_type in ['vs']"
 
 #######################################
 #####             zmq             #####

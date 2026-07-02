@@ -13,10 +13,6 @@ Please provide following information to help code review process a bit easier:
 
 Summary:
 Fixes # (issue)
-<!--
-If you request a backport/cherry-pick below, link the GitHub issue or ADO work
-item here (for example, "Fixes #<issue>" or "ADO: <work item URL>").
--->
 
 ### Type of change
 
@@ -34,13 +30,6 @@ item here (for example, "Fixes #<issue>" or "ADO: <work item URL>").
 
 
 ### Back port request
-<!--
-Only check a release or feature branch when the PR links a GitHub issue or ADO
-work item above. The linked tracker should explain the failure in detail,
-including whether it is a day-one issue or a regression, the affected
-branch/image/platform/test, and why this branch needs the fix. Backport or
-cherry-pick requests without a linked issue/work item may not be favored.
--->
 - [ ] 202311
 - [ ] 202405
 - [ ] 202411
@@ -48,9 +37,6 @@ cherry-pick requests without a linked issue/work item may not be favored.
 - [ ] 202511
 - [ ] 202512
 - [ ] 202605
-
-Tracking issue/work item for backport/cherry-pick request:
-Failure type: <!-- day-one issue / regression / other -->
 
 ### Approach
 #### What is the motivation for this PR?

@@ -48,7 +48,7 @@ def _base_host():
     }
 
 
-def _render(host, props):
+def _render(host, props, **extra):
     env = Environment(
         loader=FileSystemLoader(TEMPLATES_DIR),
         trim_blocks=False,
@@ -60,11 +60,12 @@ def _render(host, props):
         configuration={hostname: host},
         hostname=hostname,
         props=props,
+        **extra,
     )
 
 
-def _render_json(host, props):
-    rendered = _render(host, props)
+def _render_json(host, props, **extra):
+    rendered = _render(host, props, **extra)
     # A malformed template (e.g. trailing comma) makes this raise.
     return json.loads(rendered)
 
@@ -158,6 +159,47 @@ def test_no_backplane_when_absent():
     del host["bp_interface"]
     cfg = _render_json(host, {"swrole": "leaf"})
     assert "Ethernet3" not in cfg["PORT"]
+
+
+def test_mgmt_interface_rendered_when_vars_present():
+    """When mgmt_ip + mgmt_prefixlen are supplied, the neighbor gets a
+    MGMT_INTERFACE (with gateway) and MGMT_PORT so it is reachable on the mgmt
+    network (e.g. for SNMP), the same way cEOS/regular-SONiC neighbors are."""
+    cfg = _render_json(_base_host(), {"swrole": "leaf"},
+                       mgmt_ip="10.250.0.51", mgmt_prefixlen="24",
+                       mgmt_gw="10.250.0.1")
+    assert cfg["MGMT_INTERFACE"] == {
+        "eth0|10.250.0.51/24": {"gwaddr": "10.250.0.1"}
+    }
+    assert cfg["MGMT_PORT"] == {
+        "eth0": {"alias": "eth0", "admin_status": "up"}
+    }
+
+
+def test_mgmt_interface_without_gateway():
+    """Missing gateway must still produce a valid MGMT_INTERFACE entry (no
+    dangling comma / invalid JSON); the key carries a NULL placeholder."""
+    cfg = _render_json(_base_host(), {"swrole": "leaf"},
+                       mgmt_ip="10.250.0.51", mgmt_prefixlen="24")
+    assert cfg["MGMT_INTERFACE"] == {"eth0|10.250.0.51/24": {"NULL": "NULL"}}
+    assert cfg["MGMT_PORT"]["eth0"]["admin_status"] == "up"
+
+
+def test_mgmt_interface_omitted_when_vars_absent():
+    """With no mgmt vars (the standalone/unit context), the MGMT block is
+    omitted entirely and the document stays valid JSON — keeping existing
+    non-mgmt deploys byte-identical."""
+    cfg = _render_json(_base_host(), {"swrole": "leaf"})
+    assert "MGMT_INTERFACE" not in cfg
+    assert "MGMT_PORT" not in cfg
+
+
+def test_mgmt_interface_omitted_when_prefixlen_missing():
+    """An IP without a prefix length is incomplete; the block must be omitted
+    rather than emit a malformed eth0|<ip> key."""
+    cfg = _render_json(_base_host(), {"swrole": "leaf"}, mgmt_ip="10.250.0.51")
+    assert "MGMT_INTERFACE" not in cfg
+    assert "MGMT_PORT" not in cfg
 
 
 def _run_standalone():

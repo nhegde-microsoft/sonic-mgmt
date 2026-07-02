@@ -15,6 +15,7 @@ cisco_password: "password"
 
 sonic_login: "admin"
 sonic_default_passwords:
+ - "AzUrES0N1cR0cks!"
  - "YourPaSsWoRd"
  - "password"
  - "admin"
@@ -30,4 +31,4 @@ vm_host_user: use_own_value
 vm_host_password: use_own_value
 vm_host_become_password: use_own_value
 
-csonic_image: "{{ lookup('env', 'SONIC_MGMT_CSONIC_DOCKER_IMAGE') | default('docker-sonic-vs', true) }}"
+csonic_image: docker-sonic-vs

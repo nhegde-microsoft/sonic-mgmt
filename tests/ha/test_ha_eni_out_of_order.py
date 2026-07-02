@@ -1,7 +1,9 @@
 import logging
+import concurrent.futures
 
 import pytest
 from tests.common.helpers.assertions import pytest_assert
+from tests.common.config_reload import config_reload
 from tests.ha.conftest import (
     apply_dash_pl_pipeline_config,
     setup_dash_ha_from_json_util,
@@ -9,13 +11,18 @@ from tests.ha.conftest import (
     activate_dash_ha_from_json_util,
     deactivate_dash_ha_from_json_util
 )
-from ha_utils import parallel_config_reload_dpuhosts, verify_ha_state
+from ha_utils import verify_ha_state
 
 logger = logging.getLogger(__name__)
 
 pytestmark = [
     pytest.mark.topology('t1-smartswitch-ha')
 ]
+
+
+def reload_config_for_host(dpuhost):
+    logger.info(f"config reload on {dpuhost.hostname}")
+    config_reload(dpuhost, safe_reload=True, yang_validate=False)
 
 
 def test_ha_eni_out_of_order(
@@ -50,7 +57,8 @@ def test_ha_eni_out_of_order(
         deactivate_dash_ha_from_json_util(duthosts, dpuhosts, localhost, ptfhost, setup_gnmi_server, ha_owner)
         remove_setup_dash_ha_from_json_util(duthosts, dpuhosts, localhost, ptfhost, setup_gnmi_server, ha_owner)
         # cleanup the ENI
-        parallel_config_reload_dpuhosts(dpuhosts)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(dpuhosts)) as executor:
+            executor.map(reload_config_for_host, dpuhosts)
 
         logger.info("HA: reprogram HA and ENI")
         setup_dash_ha_from_json_util(duthosts, dpuhosts, localhost, ptfhost, setup_gnmi_server, ha_owner)
@@ -63,5 +71,6 @@ def test_ha_eni_out_of_order(
                       "Standby HA state is not active")
     finally:
         deactivate_dash_ha_from_json_util(duthosts, dpuhosts, localhost, ptfhost, setup_gnmi_server, ha_owner)
-        parallel_config_reload_dpuhosts(dpuhosts)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(dpuhosts)) as executor:
+            executor.map(reload_config_for_host, dpuhosts)
         remove_setup_dash_ha_from_json_util(duthosts, dpuhosts, localhost, ptfhost, setup_gnmi_server, ha_owner)

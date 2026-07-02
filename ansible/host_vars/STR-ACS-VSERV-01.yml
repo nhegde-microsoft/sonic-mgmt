@@ -1,3 +1,9 @@
+# --- vm_host connection override (scoped to this host only; does NOT affect ptf group which uses root/root) ---
+# Added to resolve add-topo: vm_host SSH must be nikhilhegde@172.17.0.1 via the docker-sonic-mgmt key.
+ansible_user: nikhilhegde
+ansible_ssh_private_key_file: /home/nikhilhegde/.ssh/id_ed25519
+ansible_become: true
+
 mgmt_bridge: br1
 mgmt_prefixlen: 24
 mgmt_gw: 10.250.0.1
