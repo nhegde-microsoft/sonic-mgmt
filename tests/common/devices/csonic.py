@@ -43,9 +43,52 @@ class CsonicHost(NeighborDevice):
     def __repr__(self):
         return self.__str__()
 
+    def __hash__(self):
+        # CsonicHost is stored as the ['host'] value of a NeighborDevice and is
+        # used interchangeably with EosHost/SonicHost, which are hashable plain
+        # objects. CsonicHost inherits NeighborDevice(dict), which is unhashable,
+        # so some tests (e.g. iface_loopback_action) that place neighbor hosts in
+        # a set or use them as dict keys raise "unhashable type: 'CsonicHost'".
+        # Identity is the container name, so hash/eq on that keep host objects
+        # hashable and distinct without relying on dict contents.
+        return hash(self.container_name)
+
+    def __eq__(self, other):
+        return isinstance(other, CsonicHost) and self.container_name == other.container_name
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    # Cache of whether the local 'docker' CLI needs a 'sudo' prefix. The pytest
+    # process launched by run_tests.sh can run as a non-root user that is not in
+    # a docker-capable group, so a bare 'docker exec' fails with
+    # "permission denied ... /var/run/docker.sock". Passwordless 'sudo docker'
+    # works for both root and that user, so we probe once and prefix as needed.
+    # cEOS neighbors side-step this entirely (EOS uses SSH/eAPI, not docker.sock).
+    _local_docker_prefix = None
+
+    @classmethod
+    def _resolve_local_docker_prefix(cls):
+        if cls._local_docker_prefix is not None:
+            return cls._local_docker_prefix
+        prefix = []
+        try:
+            probe = subprocess.run(['docker', 'version'],
+                                   capture_output=True, text=True, timeout=15)
+            if probe.returncode != 0 and 'permission denied' in \
+                    (probe.stderr or '').lower():
+                prefix = ['sudo', '-n']
+        except Exception:
+            # If the probe itself fails oddly, fall back to sudo which is a
+            # superset of privileges and is passwordless in this environment.
+            prefix = ['sudo', '-n']
+        cls._local_docker_prefix = prefix
+        return prefix
+
     def _docker_exec(self, cmd, **kwargs):
         """Run a command inside the Docker container via docker exec."""
-        docker_cmd = ['docker', 'exec', self.container_name, 'bash', '-c', cmd]
+        docker_cmd = self._resolve_local_docker_prefix() + \
+            ['docker', 'exec', self.container_name, 'bash', '-c', cmd]
 
         if not self.is_local:
             ssh_prefix = ['ssh', '-o', 'StrictHostKeyChecking=no',
