@@ -72,16 +72,33 @@ class CsonicHost(NeighborDevice):
         if cls._local_docker_prefix is not None:
             return cls._local_docker_prefix
         prefix = []
+        # Only escalate to 'sudo -n' when a bare 'docker' actually fails with a
+        # docker.sock permission-denied AND passwordless sudo is confirmed to
+        # work. A blanket sudo fallback is wrong: if the probe merely times out
+        # or docker already works as-is, forcing 'sudo -n' hits
+        # "sudo: a password is required" and every neighbor command fails
+        # (regression seen in bgp/test_bgp_session.py: 'ip link set Ethernet1
+        # down' rc=1 -> neighbor session never drops -> assertion failure).
+        needs_sudo = False
         try:
             probe = subprocess.run(['docker', 'version'],
                                    capture_output=True, text=True, timeout=15)
             if probe.returncode != 0 and 'permission denied' in \
                     (probe.stderr or '').lower():
-                prefix = ['sudo', '-n']
+                needs_sudo = True
         except Exception:
-            # If the probe itself fails oddly, fall back to sudo which is a
-            # superset of privileges and is passwordless in this environment.
-            prefix = ['sudo', '-n']
+            # Probe was inconclusive (e.g. timeout). Do NOT blindly escalate;
+            # only use sudo below if it is actually passwordless-available.
+            needs_sudo = True
+        if needs_sudo:
+            sudo_ok = False
+            try:
+                s = subprocess.run(['sudo', '-n', 'true'],
+                                   capture_output=True, text=True, timeout=10)
+                sudo_ok = (s.returncode == 0)
+            except Exception:
+                sudo_ok = False
+            prefix = ['sudo', '-n'] if sudo_ok else []
         cls._local_docker_prefix = prefix
         return prefix
 
