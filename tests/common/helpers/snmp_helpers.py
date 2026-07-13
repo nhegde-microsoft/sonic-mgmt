@@ -5,6 +5,10 @@ from tests.common.utilities import wait_until
 from tests.common.errors import RunAnsibleModuleFail
 from tests.common.helpers.assertions import pytest_assert
 from tests.common.devices.eos import EosHost
+try:
+    from tests.common.devices.csonic import CsonicHost
+except ImportError:  # pragma: no cover - csonic module optional in some trees
+    CsonicHost = None
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +102,39 @@ def get_snmp_output(ip, duthost, nbr, creds_all_duts, oid='.1.3.6.1.2.1.1.1.0'):
         eos_snmpget = "bash {} snmpget -v2c -c {} {} {}".format(
             vrf_prefix, creds_all_duts[duthost.hostname]['snmp_rocommunity'], ip, oid)
         out = nbr['host'].eos_command(commands=[eos_snmpget])
+    elif CsonicHost is not None and isinstance(nbr["host"], CsonicHost):
+        # cSONiC (docker-sonic-vs) neighbor: the neighbor host object already
+        # runs commands *inside* the neighbor container via 'docker exec', so
+        # the net-snmp CLI (/usr/bin/snmpwalk) runs there directly. The legacy
+        # "docker exec snmp <cmd>" wrapper assumes a full SONiC host with a
+        # nested snmp container and fails inside the neighbor container with
+        # rc=127 'docker: command not found'. cEOS side-steps this via the
+        # EosHost branch above.
+        #
+        # Additionally, the neighbor's Loopback IP is not a routable snmp
+        # source back from the DUT, so bind the query to the neighbor's
+        # DUT-facing (PortChannel) connected address via --clientaddr. Pick
+        # the first global address of the interface used to reach the DUT.
+        community = creds_all_duts[duthost.hostname]['snmp_rocommunity']
+        # Resolve a routable source address inside the neighbor container:
+        # the connected src the kernel would use minus the loopback (which is
+        # not reachable back). Prefer the DUT-facing PortChannel1 global addr.
+        if isinstance(ipaddr, ipaddress.IPv6Address):
+            addr_family, iface_grep = "-6", "inet6 fc"
+        else:
+            addr_family, iface_grep = "-4", "inet 10."
+        src_lookup = (
+            "ip {af} -o addr show PortChannel1 2>/dev/null | "
+            "grep -m1 '{grep}' | awk '{{print $4}}' | cut -d/ -f1"
+        ).format(af=addr_family, grep=iface_grep)
+        src_out = nbr['host'].command(src_lookup, module_ignore_errors=True)
+        client_addr = ""
+        src_stdout = src_out.get('stdout', '') if isinstance(src_out, dict) else ""
+        if src_stdout and src_stdout.strip():
+            client_addr = "--clientaddr={} ".format(src_stdout.strip())
+        command = "snmpwalk -v 2c -c {} {}{} {}".format(
+            community, client_addr, ip, oid)
+        out = nbr['host'].command(command)
     else:
         command = "docker exec snmp snmpwalk -v 2c -c {} {} {}".format(
                   creds_all_duts[duthost.hostname]['snmp_rocommunity'], ip, oid)
