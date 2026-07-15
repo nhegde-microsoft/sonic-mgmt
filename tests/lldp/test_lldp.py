@@ -199,7 +199,13 @@ def check_lldp_neighbor(duthost, localhost, eos, sonic, collect_techsupport_all_
             neighbor_interface = v['port']['ifname']
             snmp_community = eos['snmp_rocommunity']
         else:
-            neighbor_interface = v['port']['local']
+            # A SONiC (cSONiC/docker-sonic-vs) neighbor's lldpctl 'port' dict may
+            # not carry a 'local' key the way EOS does; fall back to 'ifname'
+            # (the same field EOS uses) which identifies the neighbor's local
+            # port. Both name the neighbor-side interface used to index its
+            # SNMP LLDP table below.
+            port = v['port']
+            neighbor_interface = port.get('local') or port['ifname']
             snmp_community = sonic['snmp_rocommunity']
 
         # After swss restart, the DUT's LLDP entry on the neighbor may have aged out
