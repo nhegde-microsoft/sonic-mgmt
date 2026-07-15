@@ -124,9 +124,47 @@ def get_snmp_output(ip, duthost, nbr, creds_all_duts, oid='.1.3.6.1.2.1.1.1.0'):
         src_stdout = src_out.get('stdout', '') if isinstance(src_out, dict) else ""
         if src_stdout and src_stdout.strip():
             client_addr = "--clientaddr={} ".format(src_stdout.strip())
-        command = "snmpwalk -v 2c -c {} {}{} {}".format(
-            community, client_addr, ip, oid)
-        out = nbr['host'].command(command)
+        # On a docker-sonic-vs neighbor the BGP route to the DUT loopback is
+        # programmed to the ASIC/FIB but is NOT present in the neighbor's Linux
+        # kernel routing table, so control-plane traffic (snmpget from the host
+        # netns) falls through to the default route and egresses the wrong
+        # (backplane) interface -- the query never reaches the DUT. --clientaddr
+        # only fixes the source address, not egress selection. Install a
+        # temporary kernel /host route for the DUT IP via the BGP nexthop out
+        # PortChannel1 for the duration of the query, then remove it.
+        nh_family = "-6" if isinstance(ipaddr, ipaddress.IPv6Address) else "-4"
+        nexthop_lookup = (
+            "vtysh -c 'show {af} route {dst} json' 2>/dev/null | "
+            "python3 -c \"import sys,json;"
+            "d=json.load(sys.stdin);"
+            "e=next(iter(d.values()))[0];"
+            "n=[h for h in e['nexthops'] "
+            "if h.get('interfaceName','').startswith('PortChannel')][0];"
+            "print(n['ip'], n['interfaceName'])\""
+        ).format(af="ipv6" if isinstance(ipaddr, ipaddress.IPv6Address) else "ip",
+                 dst=ip)
+        nh_out = nbr['host'].command(nexthop_lookup, module_ignore_errors=True)
+        nh_stdout = nh_out.get('stdout', '') if isinstance(nh_out, dict) else ""
+        route_added = False
+        if nh_stdout and len(nh_stdout.split()) == 2:
+            nh_ip, nh_dev = nh_stdout.split()
+            add_cmd = "ip {af} route replace {dst}/{plen} via {nh} dev {dev}".format(
+                af=nh_family, dst=ip,
+                plen=128 if isinstance(ipaddr, ipaddress.IPv6Address) else 32,
+                nh=nh_ip, dev=nh_dev)
+            nbr['host'].command(add_cmd, module_ignore_errors=True)
+            route_added = True
+        try:
+            command = "snmpwalk -v 2c -c {} {}{} {}".format(
+                community, client_addr, ip, oid)
+            out = nbr['host'].command(command)
+        finally:
+            if route_added:
+                del_cmd = "ip {af} route del {dst}/{plen} via {nh} dev {dev}".format(
+                    af=nh_family, dst=ip,
+                    plen=128 if isinstance(ipaddr, ipaddress.IPv6Address) else 32,
+                    nh=nh_ip, dev=nh_dev)
+                nbr['host'].command(del_cmd, module_ignore_errors=True)
     else:
         command = "docker exec snmp snmpwalk -v 2c -c {} {} {}".format(
                   creds_all_duts[duthost.hostname]['snmp_rocommunity'], ip, oid)
