@@ -32,7 +32,15 @@ def run_config_db_cmd(duthost, enum_asic_index, cmd, module_ignore_errors=True):
 
 
 def verify_bgp_peer(neighbor_type, nbrhost, localip, expected_bgp_router_id, is_v6_topo, vrf="default"):
-    if neighbor_type in ("sonic", "csonic"):
+    if neighbor_type == "csonic":
+        # A cSONiC neighbor is FRR-backed but has no "show ip[v6] bgp" Click
+        # subcommand, so route the query through vtysh which emits the
+        # "BGP version 4, remote router ID ..." line the test greps.
+        if is_v6_topo:
+            cmd = "vtysh -c \"show ipv6 bgp neighbors {}\"".format(localip)
+        else:
+            cmd = "vtysh -c \"show ip bgp neighbors {}\"".format(localip)
+    elif neighbor_type == "sonic":
         if is_v6_topo:
             cmd = "show ipv6 bgp neighbors {}".format(localip)
         else:
