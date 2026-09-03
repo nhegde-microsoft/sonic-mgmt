@@ -145,10 +145,48 @@ container_checker/test_container_checker.py::test_container_checker_telemetry:
 #######################################
 #####           COPP              #####
 #######################################
-copp:
+# sonic-buildimage#25801: CoPP dataplane enforcement implemented for VPP
+# via the copp_punt_policer device-input plugin (ARP/LACP/LLDP/UDLD/
+# TTL_ERROR classify+police+direct-to-TAP) plus VPP's pre-existing
+# ip4/ip6-unicast policer-classify (BGP/DHCP/DHCPv6/IP2ME/neighbor
+# discovery). test_verify_copp_configuration_cli, all test_policer
+# variants, and test_trap_config_save_after_reboot (real DUT reboot,
+# config save + reboot + verify trap persists) are confirmed passing
+# on vlab-vpp-01 (vms-kvm-vpp-t1-lag) -- skip lifted for those. The
+# remaining sub-tests are not yet validated on this platform and stay
+# skipped, each with its own specific reason:
+#   - test_policer_mtu, test_add_new_trap, test_remove_trap: blocked by
+#     a pre-existing (unrelated to CoPP) YANG validation failure in this
+#     testbed's BGP-shutdown fixture step, not a CoPP dataplane gap.
+copp/test_copp.py::TestCOPP::test_policer_mtu:
   skip:
     reason: >
-            Unsupported
+            Blocked by a pre-existing YANG validation failure in this
+            testbed's BGP-shutdown fixture step (sonic-buildimage#25801
+            tracks CoPP dataplane enforcement itself, which is done for
+            VPP; this is a separate, unrelated environment issue).
+    conditions_logical_operator: or
+    conditions:
+      - "asic_type in ['vpp']"
+
+copp/test_copp.py::TestCOPP::test_add_new_trap:
+  skip:
+    reason: >
+            Blocked by a pre-existing YANG validation failure in this
+            testbed's BGP-shutdown fixture step (sonic-buildimage#25801
+            tracks CoPP dataplane enforcement itself, which is done for
+            VPP; this is a separate, unrelated environment issue).
+    conditions_logical_operator: or
+    conditions:
+      - "asic_type in ['vpp']"
+
+copp/test_copp.py::TestCOPP::test_remove_trap:
+  skip:
+    reason: >
+            Blocked by a pre-existing YANG validation failure in this
+            testbed's BGP-shutdown fixture step (sonic-buildimage#25801
+            tracks CoPP dataplane enforcement itself, which is done for
+            VPP; this is a separate, unrelated environment issue).
     conditions_logical_operator: or
     conditions:
       - "asic_type in ['vpp']"
